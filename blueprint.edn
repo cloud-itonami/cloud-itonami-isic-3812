@@ -1,0 +1,11 @@
+{:itonami.blueprint/id "cloud-itonami-3812"
+ :itonami.blueprint/name "Community Hazardous Waste Collection"
+ :itonami.blueprint/isic-rev5 "3812"
+ :itonami.blueprint/domain :environmental/hazardous-waste-management
+ :itonami.blueprint/license "AGPL-3.0-or-later"
+ :itonami.blueprint/social-impact [:public-health :environmental-protection :chain-of-custody]
+ :itonami.blueprint/governor :hazardous-waste-governor
+ :itonami.blueprint/robotics true
+ :itonami.blueprint/required-technologies [:robotics :identity :forms :dmn :bpmn :audit-ledger :telemetry]
+ :itonami.blueprint/optional-technologies [:optimization]
+ :itonami.blueprint/status :public-oss}
