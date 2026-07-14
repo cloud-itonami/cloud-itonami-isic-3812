@@ -21,7 +21,6 @@
 ;; ───────────────────────── hard-gate tests ─────────────────────────
 
 (deftest hazard-gate-rejects-non-hazardous
-  "CRITICAL: 3812 ONLY accepts hazard-flagged streams. No hazard = HARD reject."
   (let [request {:op :intake-collection-order}
         context {:actor-role :collection-dispatcher}
         proposal-no-flags {:source {:class :collector-visual-inspection}
@@ -34,7 +33,6 @@
     (is (:hard? (policy/check request context proposal-nil-flags test-store)))))
 
 (deftest hazard-gate-accepts-hazardous
-  "When hazard flags are present, hazard-gate passes."
   (let [request {:op :intake-collection-order}
         context {:actor-role :collection-dispatcher :client-id "client-001"}
         proposal {:source {:class :collector-visual-inspection}
@@ -46,9 +44,7 @@
       (is (not (some #(= :hazard-gate (:rule %)) (:violations verdict)))))))
 
 (deftest rbac-violations
-  "Role-based access control."
   (let [request-intake {:op :intake-collection-order}
-        request-dispatch {:op :schedule-collection-dispatch}
         context-bad-role {:actor-role :unknown-role}
         proposal {:source {:class :collector-visual-inspection}
                   :value {:hazard-flags #{:corrosive}}}]
@@ -62,7 +58,6 @@
                                               proposal test-store)))))))
 
 (deftest facility-capacity-violations
-  "Facility treatment capacity gate."
   (let [context {:actor-role :collection-dispatcher :client-id "client-001"}
         ;; Proposal that exceeds facility capacity
         proposal-over-capacity
@@ -76,7 +71,6 @@
                 (:violations verdict))))))
 
 (deftest source-provenance-gate-violations
-  "Source-provenance-gate rejects unknown source classes."
   (let [request {:op :intake-collection-order}
         context {:actor-role :collection-dispatcher :client-id "client-001"}
         proposal-bad-source {:source {:class :inference :ref "guess"}
@@ -93,7 +87,6 @@
               (:violations (policy/check request context proposal-no-source test-store))))))
 
 (deftest client-manifest-register-violations
-  "Client must be registered and active."
   (let [request {:op :intake-collection-order}
         proposal {:source {:class :collector-visual-inspection}
                   :value {:hazard-flags #{:corrosive} :facility-id "facility-001"
@@ -110,7 +103,6 @@
 ;; ───────────────────────── soft-gate tests (escalation) ─────────────────────────
 
 (deftest low-confidence-escalation
-  "Low confidence → escalate (soft gate, human decides)."
   (let [request {:op :intake-collection-order}
         context {:actor-role :collection-dispatcher :client-id "client-001"}
         proposal {:source {:class :collector-visual-inspection}
@@ -122,7 +114,6 @@
       (is (and (not (:hard? verdict)) (:escalate? verdict))))))
 
 (deftest bulk-volume-escalation
-  "Bulk intake → escalate (soft gate, human decides)."
   (let [request {:op :intake-collection-order}
         context {:actor-role :collection-dispatcher :client-id "client-001"}
         proposal {:source {:class :collector-visual-inspection}
@@ -134,7 +125,6 @@
       (is (and (not (:hard? verdict)) (:escalate? verdict) (:bulk? verdict))))))
 
 (deftest hazard-concern-always-escalates
-  "Hazard concern flag operation always escalates (human sign-off required)."
   (let [request {:op :flag-hazard-concern}
         context {:actor-role :hazard-inspector :client-id "client-001"}
         proposal {:value {:intake-id "intake-001" :concern-type :contamination}
@@ -146,7 +136,6 @@
 ;; ───────────────────────── ok? verdict tests ─────────────────────────
 
 (deftest clean-verdict-when-no-violations
-  "Verdict is :ok? only when no hard violations, not escalating."
   (let [request {:op :intake-collection-order}
         context {:actor-role :collection-dispatcher :client-id "client-001"}
         proposal {:source {:class :collector-visual-inspection}

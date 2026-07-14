@@ -23,10 +23,7 @@
      :value      map|nil        ; the intake/manifest/coordination patch
      :confidence 0..1}"
   (:require #?(:clj  [clojure.edn :as edn]
-               :cljs [cljs.reader :as edn])
-            [clojure.string :as str]
-            [langchain.model :as model]
-            [hazmat.store :as store]))
+               :cljs [cljs.reader :as edn])))
 
 (defn- propose-intake-collection-order
   "Intake collection order normalization — the LLM only verifies/normalizes

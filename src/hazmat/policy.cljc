@@ -37,8 +37,7 @@
                                       regardless of confidence.
     8. hazard-concern flags         — any :flag-hazard-concern operation
                                       ALWAYS escalates with human sign-off."
-  (:require [clojure.set :as set]
-            [hazmat.facts :as facts]
+  (:require [hazmat.facts :as facts]
             [hazmat.store :as store]))
 
 ;; ───────────────────────── policy tables ─────────────────────────
