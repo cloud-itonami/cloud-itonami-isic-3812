@@ -38,7 +38,15 @@
   (client [st client-id]
     (get (:clients st) client-id))
   (client-manifest [st client-id]
-    (filter #(= client-id (:client-id %)) (:records st)))
+    ;; Two things were wrong here. `:records` is an atom (see `mem-store`), so it
+    ;; has to be deref'd -- filtering the atom itself threw "Don't know how to
+    ;; create ISeq from: clojure.lang.Atom". And `commit-record!` stores whole
+    ;; records shaped {:effect .. :value {..}}, so `:client-id` lives under
+    ;; `:value`, not at the top level; the old predicate matched nothing. Return
+    ;; the manifest values, which is what the protocol docstring describes.
+    (into [] (comp (map :value)
+                   (filter #(= client-id (:client-id %))))
+          @(:records st)))
   (disposal-facility [st facility-id]
     (get (:facilities st) facility-id))
   (facility-intake [st facility-id treatment-method]
