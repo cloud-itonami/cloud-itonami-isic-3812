@@ -92,6 +92,17 @@
         :else nil))))
 
 (defn- facility-treatment-capacity-violations
+  "The facility's permitted daily intake capacity per treatment method.
+
+  `estimated-kg` used to be defaulted with `(or estimated-kg 0M)`, so an
+  unweighed HAZARDOUS-waste order contributed ZERO to the running intake
+  and always passed the permit-capacity check -- fail-open on an
+  environmental permit limit for hazardous waste. A non-numeric weight
+  reached `+` and threw out of the governor itself.
+
+  A weight that is not a number cannot be added to the day's intake, so
+  the check cannot be performed, so it is a violation. Not a zero, and
+  not a crash."
   [{:keys [op]} proposal st]
   (when (#{:intake-collection-order :schedule-collection-dispatch} op)
     (let [{:keys [facility-id treatment-method estimated-kg]} (:value proposal)
@@ -102,7 +113,12 @@
         [{:rule :facility-treatment-capacity-gate
           :detail (str "Facility " facility-id " is not licensed for treatment-method " treatment-method)}]
 
-        (> (+ (store/facility-intake st facility-id treatment-method) (or estimated-kg 0M)) cap)
+        (not (number? estimated-kg))
+        [{:rule :facility-treatment-capacity-gate
+          :detail (str "estimated-kg が数値でない(" (pr-str estimated-kg) ") -- "
+                       "許可容量に対する検算ができないため計上しない")}]
+
+        (> (+ (store/facility-intake st facility-id treatment-method) estimated-kg) cap)
         [{:rule :facility-treatment-capacity-gate
           :detail (str "Facility " facility-id " treatment capacity exceeded for " treatment-method
                        ": current=" (store/facility-intake st facility-id treatment-method)
@@ -132,9 +148,29 @@
         :else nil))))
 
 (defn- bulk?
+  "An `:intake-collection-order`/`:schedule-collection-dispatch` proposal
+  is treated as bulk -- and so reaches a human -- unless its
+  `:estimated-kg` can be established to be BELOW `bulk-threshold-kg`.
+
+  Note the direction. This used to be
+  `(some-> (get-in proposal [:value :estimated-kg]) (>= bulk-threshold-kg))`,
+  which read the weight out of the advisor's OWN proposal and, because
+  `some->` short-circuits on nil, returned nil when the field was
+  ABSENT -- so a HAZARDOUS-waste order carrying no estimated weight at
+  all was classified as non-bulk and skipped the bulk review entirely.
+
+  There is nothing to recompute the estimate against at order time: the
+  manifest weight is recorded once the waste has actually been
+  collected, which is after this decision. A self-declared estimate
+  therefore cannot be verified, and an unverifiable number is worthless
+  as a DE-escalation signal -- it may raise the alarm, it must never
+  silence it. That the payload here is hazardous waste is exactly why
+  the safe default is to escalate."
   [{:keys [op]} proposal]
-  (and (contains? #{:intake-collection-order :schedule-collection-dispatch} op)
-       (some-> (get-in proposal [:value :estimated-kg]) (>= bulk-threshold-kg))))
+  (when (contains? #{:intake-collection-order :schedule-collection-dispatch} op)
+    (let [kg (get-in proposal [:value :estimated-kg])]
+      (or (not (number? kg))
+          (>= kg bulk-threshold-kg)))))
 
 (defn check
   "Censors a HazmatDispatch-LLM proposal against the policy tables. Returns
