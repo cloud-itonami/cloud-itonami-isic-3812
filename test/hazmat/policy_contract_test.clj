@@ -1,5 +1,5 @@
 (ns hazmat.policy-contract-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.test :refer [deftest is testing]]
             [hazmat.policy :as policy]
             [hazmat.store :as store]))
 
@@ -147,3 +147,46 @@
       (is (:ok? verdict))
       (is (not (:hard? verdict)))
       (is (not (:escalate? verdict))))))
+
+;; ---------------------------------------------------------------------------
+;; Unverifiable weight must not be treated as safe
+;; ---------------------------------------------------------------------------
+
+(deftest an-unweighed-hazardous-order-does-not-count-as-zero-against-the-permit
+  (testing "`(or estimated-kg 0M)` meant an unweighed HAZARDOUS-waste order
+            contributed ZERO to the facility's daily intake and so always
+            passed the environmental permit-capacity check"
+    (let [request {:op :intake-collection-order}
+          context {:actor-role :collection-dispatcher :client-id "client-001"}
+          proposal {:source {:class :collector-visual-inspection}
+                    :value {:hazard-flags #{:corrosive}
+                            :facility-id "facility-001" :waste-class :corrosive
+                            :treatment-method :incineration}}
+          verdict (policy/check request context proposal test-store)]
+      (is (some #(= :facility-treatment-capacity-gate (:rule %)) (:violations verdict))))))
+
+(deftest a-non-numeric-weight-does-not-crash-the-governor
+  (testing "it used to reach `+` and throw a ClassCastException out of the
+            governor itself"
+    (let [request {:op :intake-collection-order}
+          context {:actor-role :collection-dispatcher :client-id "client-001"}
+          proposal {:source {:class :collector-visual-inspection}
+                    :value {:hazard-flags #{:corrosive}
+                            :facility-id "facility-001" :waste-class :corrosive
+                            :treatment-method :incineration :estimated-kg "100"}}
+          verdict (policy/check request context proposal test-store)]
+      (is (some #(= :facility-treatment-capacity-gate (:rule %)) (:violations verdict))))))
+
+(deftest omitting-the-weight-no-longer-skips-the-bulk-review
+  (testing "`(some-> kg (>= threshold))` returned nil when :estimated-kg was
+            ABSENT, so an order carrying no weight was classified non-bulk"
+    (let [request {:op :intake-collection-order}
+          context {:actor-role :collection-dispatcher :client-id "client-001"}
+          proposal {:source {:class :collector-visual-inspection}
+                    :value {:hazard-flags #{:corrosive}
+                            :facility-id "facility-001" :waste-class :corrosive
+                            :treatment-method :incineration}
+                    :confidence 0.99}
+          verdict (policy/check request context proposal test-store)]
+      (is (false? (:ok? verdict))
+          "an unweighed hazardous order must never be clean-to-commit"))))
