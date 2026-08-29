@@ -13,11 +13,14 @@
   ;; clojure -M:dev:run  → drive the demo through one OperationActor
   :run {:main-opts ["-m" "hazmat.sim"]}
   ;; The Kotoba compiler and the KIR interpreter are TEST-ONLY. They exist for
-  ;; the decision-core parity gate (`hazmat.phase-kotoba-parity-test` over
-  ;; `src/hazmat/phase_core.kotoba`): the test compiles the core and executes
-  ;; it, so nothing in `src/` requires either and this alias cannot change what
-  ;; the actor does. Measured 2026-08-30: `grep -rn "kotoba\\.compiler\\|kotoba\\.kir" src`
-  ;; is empty.
+  ;; the .kotoba parity gates — `hazmat.phase-kotoba-parity-test` over
+  ;; `src/hazmat/phase_core.kotoba` (a decision-core fallback: the phase gate
+  ;; needed a BigDecimal weight) and `hazmat.report-kotoba-parity-test` over
+  ;; `src/hazmat/report_disclosure.kotoba` (not a fallback: the disclosure gate
+  ;; is written in full, in strings, on all three targets). Each test compiles
+  ;; the .kotoba and executes it, so nothing in `src/` requires either and this
+  ;; alias cannot change what the actor does. Measured 2026-08-30:
+  ;; `grep -rn "kotoba\\.compiler\\|kotoba\\.kir" src` is empty.
   ;;
   ;; `compiler.git` redirects at GitHub to `kotoba-lang/amu`. Pinned rather
   ;; than floated, and pinned to the SAME pair `cloud-itonami-app` uses for its
