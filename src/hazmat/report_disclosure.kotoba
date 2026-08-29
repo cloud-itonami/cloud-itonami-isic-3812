@@ -1,0 +1,165 @@
+;; The disclosure gate for `:report-query` — which columns of an intake /
+;; manifest / disposal record a client's contract entitles it to see, and, when
+;; a column is withheld, what it is told.
+;;
+;; ## This is not a decision core
+;;
+;; `phase_core.kotoba` in this repo is a FALLBACK: the phase gate is a program
+;; whose judgement was carved out because the value it needed (a BigDecimal
+;; weight) had nowhere to live. ADR-2608261100 says that shape is a fallback
+;; and not the way Kotoba is written, so this module is not one. The product
+;; semantics of `hazmat.report` ARE the disclosure gate, and they are here in
+;; full — column names as strings, refusal text as strings, on `:wasm32`,
+;; `:x86_64` and `:aarch64` alike. Nothing was collapsed to a scalar to fit a
+;; backend. Measured 2026-08-30 against the compiler pinned in `deps.edn`:
+;; `string=?`, `cond`, `[:option :string]`, `string-concat` and
+;; `string-from-i64` are admitted on all three; `typed-map` and `[:set :string]`
+;; are not admitted natively, and are not used.
+;;
+;; ## What stayed in the host
+;;
+;; `report.cljc` reads the client's billing contract out of the Store and turns
+;; it into a tier code. That read is ambient authority — a Store is a MemStore,
+;; a Datomic connection or kotoba-server depending on deployment — so it is
+;; mechanism and it stays there. Which columns that tier may then see is
+;; product semantics and is here. Keywords do not cross the boundary; the host
+;; passes `(name column)`.
+;;
+;; ## What is at risk
+;;
+;; `hazmat.policy` declares `disclosure-tier-columns` and calls anything beyond
+;; it "over-disclosure". Nothing enforced it. `generate-report` took a `_store`
+;; it did not read and a `columns` list it echoed straight back, so a
+;; `:tier/basic` contract asking for `:hazard-flags` — the waste's hazard
+;; classification, on a HAZARDOUS-waste actor — was answered with
+;; `:hazard-flags`. Only the empty `:records` kept that from being a leak, and
+;; an empty result set is not an access control.
+;;
+;; Two properties are the point of this file, and both are asserted over the
+;; whole cross-product in `test/hazmat/report_kotoba_parity_test.clj` rather
+;; than only as agreement with the cljc — agreement would still hold if both
+;; sides were wrong together, which is what happened to the phase gate.
+;;
+;;   1. **A column outside the catalog is disclosed at no tier.** The catalog
+;;      is closed: `column-min-tier` answers `column-unknown` (99) for anything
+;;      it does not name, and 99 is above every tier that exists, so the
+;;      predicate refuses it without a special case that could be dropped.
+;;   2. **A wider tier never discloses less.** Tier codes are ordered BY
+;;      BREADTH on purpose (basic 0 < detailed 1 < audit 2), so "wider" is
+;;      `>=` on the code and monotonicity is arithmetic rather than a table of
+;;      allowed pairs.
+;;
+;; ## The unlicensed tier
+;;
+;; Any tier the host cannot establish — no contract row, an inactive contract,
+;; or a tier keyword outside the three declared ones — arrives as -1, below
+;; every column's minimum, and discloses nothing. That direction is deliberate:
+;; a disclosure tier that cannot be read is not evidence of entitlement. It is
+;; the same reasoning as `hazmat.policy/bulk?` ("an unverifiable number may
+;; raise the alarm, it must never silence it"), applied to a contract instead
+;; of a weight, and the opposite of the `get-in`-default habit that
+;; `phase_core.kotoba` had to preserve.
+;;
+;; ## Recorded gap: the rows
+;;
+;; This gate decides COLUMNS. `generate-report` still returns `:records []` —
+;; no implementation of this Store projects rows for a report query, and adding
+;; one is not this commit. So the gate is today enforced against an empty
+;; result set. It is written and tested now, before there are rows, because the
+;; alternative is to write it in the same commit that first produces them.
+;;
+;; Parity: test/hazmat/report_kotoba_parity_test.clj
+
+(ns hazmat.report-disclosure
+  (:export [tier-unlicensed tier-basic tier-detailed tier-audit tier-name
+            column-unknown column-min-tier column-known?
+            disclose? refusal report-summary main]))
+
+;; ── tiers, ordered by breadth ───────────────────────────────────────────────
+
+;; Below every column minimum. See the header: an unreadable contract is not
+;; an entitlement.
+(defn tier-unlicensed [] :i64 -1)
+
+(defn tier-basic [] :i64 0)
+(defn tier-detailed [] :i64 1)
+(defn tier-audit [] :i64 2)
+
+(defn tier-name [tier :i64] :string
+  (cond
+    (= tier (tier-basic))    "basic"
+    (= tier (tier-detailed)) "detailed"
+    (= tier (tier-audit))    "audit"
+    :else                    "unlicensed"))
+
+;; ── the column catalog ──────────────────────────────────────────────────────
+
+;; Above `tier-audit`, so a column that is not named below is refused by the
+;; ordinary comparison in `disclose?` and not by a branch that could be lost.
+(defn column-unknown [] :i64 99)
+
+(defn column-min-tier [column :string] :i64
+  ;; The narrowest tier whose set in `hazmat.policy/disclosure-tier-columns`
+  ;; contains this column. The cljc derives the same number from that table
+  ;; rather than from a second copy, so the parity test compares this against
+  ;; the policy the governor actually declares.
+  (cond
+    ;; base — every licensed tier
+    (string=? column "intake-id")        (tier-basic)
+    (string=? column "generator-id")     (tier-basic)
+    (string=? column "facility-id")      (tier-basic)
+    (string=? column "waste-class")      (tier-basic)
+    (string=? column "scheduled-date")   (tier-basic)
+    ;; detailed-extra — weights
+    (string=? column "estimated-kg")     (tier-detailed)
+    (string=? column "actual-kg")        (tier-detailed)
+    ;; audit-extra — the hazard classification itself, its basis, and how the
+    ;; waste is to be treated
+    (string=? column "hazard-flags")     (tier-audit)
+    (string=? column "source")           (tier-audit)
+    (string=? column "treatment-method") (tier-audit)
+    :else                                (column-unknown)))
+
+(defn column-known? [column :string] :bool
+  (< (column-min-tier column) (column-unknown)))
+
+;; ── the gate ────────────────────────────────────────────────────────────────
+
+(defn disclose? [tier :i64 column :string] :bool
+  ;; Monotone in `tier` by construction: the only thing `tier` does is stand on
+  ;; the left of a `>=`. A column outside the catalog scores 99 and so fails
+  ;; this for every tier, without a separate branch.
+  (>= tier (column-min-tier column)))
+
+(defn refusal [tier :i64 column :string] [:option :string]
+  ;; Present exactly when `disclose?` is false, and the two reasons are kept
+  ;; apart: asking for something this contract has not bought is a different
+  ;; event from asking for a column that does not exist, and only the first is
+  ;; worth an upgrade conversation.
+  (if (disclose? tier column)
+    (option-none-of [:option :string])
+    (if (column-known? column)
+      (option-some-of
+       [:option :string]
+       (string-concat
+        "column "
+        (string-concat
+         column
+         (string-concat
+          " requires disclosure tier "
+          (string-concat
+           (tier-name (column-min-tier column))
+           (string-concat "; this contract holds " (tier-name tier)))))))
+      (option-some-of
+       [:option :string]
+       (string-concat
+        "column "
+        (string-concat column " is not in the disclosure catalog"))))))
+
+(defn report-summary [client-id :string] :string
+  (string-concat "report for client " client-id))
+
+(defn main [] :i64
+  ;; Sentinel for the wasm host contract, not a battery. The assertions live in
+  ;; the parity test, where they can be compared against the cljc.
+  0)
