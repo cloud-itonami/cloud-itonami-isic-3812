@@ -12,9 +12,26 @@
          {:local/root "../../kotoba-lang/langchain"}}}
   ;; clojure -M:dev:run  → drive the demo through one OperationActor
   :run {:main-opts ["-m" "hazmat.sim"]}
+  ;; The Kotoba compiler and the KIR interpreter are TEST-ONLY. They exist for
+  ;; the decision-core parity gate (`hazmat.phase-kotoba-parity-test` over
+  ;; `src/hazmat/phase_core.kotoba`): the test compiles the core and executes
+  ;; it, so nothing in `src/` requires either and this alias cannot change what
+  ;; the actor does. Measured 2026-08-30: `grep -rn "kotoba\\.compiler\\|kotoba\\.kir" src`
+  ;; is empty.
+  ;;
+  ;; `compiler.git` redirects at GitHub to `kotoba-lang/amu`. Pinned rather
+  ;; than floated, and pinned to the SAME pair `cloud-itonami-app` uses for its
+  ;; own cores: KIR is a versioned document, and an interpreter reading a shape
+  ;; its emitter did not write is the failure the pin exists to remove.
   :test {:extra-paths ["test"]
          :extra-deps {io.github.cognitect-labs/test-runner
-                      {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+                      {:git/tag "v0.5.1" :git/sha "dfb30dd"}
+                      io.github.kotoba-lang/compiler
+                      {:git/url "https://github.com/kotoba-lang/compiler.git"
+                       :git/sha "1644b326eefa0951a6343cee9aff88fe9ba745e2"}
+                      io.github.kotoba-lang/kotoba-kir
+                      {:git/url "https://github.com/kotoba-lang/kotoba-kir.git"
+                       :git/sha "da24cae65e82f91352c5b96b0c58f21a52911277"}}
          :main-opts ["-m" "cognitect.test-runner"]
          :exec-fn cognitect.test-runner.api/test}
   ;; static analysis — clj-kondo from deps (no binary), errors fail CI.
