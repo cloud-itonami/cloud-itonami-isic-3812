@@ -20,6 +20,17 @@
     (is (= :escalate (:disposition result)))
     (is (string? (:reason result)))))
 
+(deftest phase-0-respects-hold
+  ;; `hazmat.policy` says a HARD violation "forces HOLD; a human cannot
+  ;; override", and `hazmat.operation` routes :escalate to :request-approval
+  ;; where an approver saying :approved commits. Escalating a :hold here IS
+  ;; that override. Phase 0 did exactly that until 2026-08-30 -- the most
+  ;; cautious phase was the only one that could take caution away.
+  (let [request {:value {:estimated-kg 100M}}
+        result (phase/gate :phase-0-manual request :hold)]
+    (is (= :hold (:disposition result)))
+    (is (nil? (:reason result)))))
+
 (deftest phase-1-small-intakes-commit
   (let [request-small {:value {:estimated-kg 400M}}
         request-large {:value {:estimated-kg 600M}}]

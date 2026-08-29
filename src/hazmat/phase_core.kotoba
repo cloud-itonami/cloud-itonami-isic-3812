@@ -1,0 +1,207 @@
+;; The rollout-phase gate's DECISION CORE — how much caution the deployment
+;; phase adds on top of the HazardousWasteGovernor's verdict.
+;;
+;; `phase.cljc` keeps the shapes around it: reading `:hard?` / `:escalate?` out
+;; of the verdict map, reading `:estimated-kg` out of the request, and building
+;; the `{:disposition :reason}` map the `:decide` node destructures. Those are
+;; maps. What is here is the judgement.
+;;
+;; ## What is at risk
+;;
+;; One property is the whole point of this file, and it was one branch away
+;; from being lost: **the phase gate may only ADD caution, never remove it.**
+;; `hazmat.policy` promises that a HARD violation (missing hazard flags, a
+;; facility over its permitted daily treatment capacity, an unsourced hazard
+;; classification, an unregistered client) "forces HOLD; a human cannot
+;; override". `hazmat.operation` routes `:hold` straight to the hold node and
+;; `:escalate` to `:request-approval`, where an approver saying `:approved`
+;; commits. So a gate that turns `:hold` into `:escalate` hands the approver
+;; exactly the override the governor said did not exist.
+;;
+;; Phase 0 used to do that unconditionally — it is the phase that is supposed
+;; to be the MOST cautious, and it was the only one that could take caution
+;; away. Phase 1 already guarded `:hold` explicitly. Fixed here and in
+;; `phase.cljc` together, with the property asserted over the whole
+;; cross-product in `test/hazmat/phase_kotoba_parity_test.clj` rather than
+;; only agreement with the cljc — agreement would still hold if both sides
+;; were wrong together.
+;;
+;; Disposition codes are ordered BY CAUTION on purpose (commit 0 < escalate 1 <
+;; hold 2), so "adds caution" is `>=` on the code and the parity test can state
+;; it as arithmetic instead of a table. Keywords do not cross this boundary;
+;; the mapping stays in the cljc.
+;;
+;; ## Weight, and the absence of BigDecimal
+;;
+;; `phase.cljc` writes the phase-1 threshold as `500M` and compares BigDecimal
+;; against BigDecimal. **Kotoba has no BigDecimal** — the numeric model is
+;; i64 / f32 / f64 — so a choice had to be made rather than inherited.
+;;
+;; f64 was rejected: it would put binary rounding on a decimal weight, which is
+;; a NEW failure mode at exactly the boundary this predicate exists to police.
+;;
+;; The core takes whole kilograms, floored, and holds the threshold as an i64.
+;; That is not a narrowing of this predicate, it is exact for it: for any real
+;; x and any INTEGER n, `floor(x) < n` if and only if `x < n`. The parity test
+;; drives fractional BigDecimals (499.9, 500.0, 500.1, and 0.4 either side of
+;; the boundary) through both sides so the equivalence is measured, not
+;; asserted in this comment.
+;;
+;; **Removal condition.** The exactness above depends on two things that are
+;; true today and are not laws:
+;;   - the threshold is an integer number of kilograms (500), and
+;;   - the comparison is strict `<`.
+;; If the threshold ever becomes fractional, or the comparison becomes `<=`,
+;; floor stops being exact (500.5 floors to 500, and `500 <= 500` is true while
+;; `500.5 <= 500` is false) and this must move to a scaled integer unit —
+;; grams in i64 covers 9.2e12 kg — or to a decimal type if the language gains
+;; one. Do not change either without changing this.
+;;
+;; ## The weight nobody declared
+;;
+;; `weight-known` is carried explicitly instead of being folded into a default,
+;; because the cljc's `(or (get-in request [:value :estimated-kg] 0M) 0M)`
+;; scores an ABSENT weight as zero — below the threshold — so a phase-1 intake
+;; that declared no weight at all auto-commits. That is preserved here (parity
+;; is the point of this commit) but it is preserved VISIBLY, in
+;; `effective-kg`, rather than hidden inside a `get-in` default.
+;;
+;; It is the opposite direction from `hazmat.policy/bulk?`, which was
+;; deliberately changed to treat a non-numeric weight as bulk on the ground
+;; that "an unverifiable number ... may raise the alarm, it must never silence
+;; it". For the two ops that carry a weight
+;; (`:intake-collection-order` / `:schedule-collection-dispatch`) `bulk?`
+;; already escalates first, so the base disposition is not `:commit` and this
+;; branch is unreachable. It is reachable for `:manifest-record`. Left as a
+;; recorded gap rather than changed in the same commit as the phase-0 fix.
+;;
+;; ## Non-numeric weight
+;;
+;; A weight that is neither a number nor absent (a string, say) reaches `<` in
+;; the cljc and throws out of the gate. Kotoba has no `throw` — that is a
+;; permanent security invariant, not a backend gap — so the core cannot
+;; reproduce it and does not try: `weight-known` is a boolean the host
+;; establishes. Making the cljc return `[:result T E]` instead of throwing is
+;; the follow-up, and is why this is named here rather than left to be found.
+;;
+;; Parity: test/hazmat/phase_kotoba_parity_test.clj
+
+(ns hazmat.phase-core
+  (:schemas {;; What `verdict->disposition` reads out of the governor verdict.
+             ;; A record because a bare `:bool` parameter is still refused
+             ;; (compiler ADR 0219) while `:bool` FIELDS have always worked.
+             :phase/verdict
+             [:record :phase/verdict
+              [[:hard :bool] [:escalate :bool]]]
+             ;; Everything the gate needs, flattened out of the phase keyword,
+             ;; the base disposition and the request map.
+             :phase/gate
+             [:record :phase/gate
+              [[:phase :i64]
+               [:disposition :i64]
+               [:weight-known :bool]
+               [:estimated-kg :i64]]]})
+  (:export [disposition-commit disposition-escalate disposition-hold
+            phase-0-manual phase-1-review phase-2-supervised phase-3-autonomous
+            default-phase bulk-review-threshold-kg
+            verdict-disposition effective-kg phase-1-auto-commit?
+            gate-disposition gate-reason main]))
+
+;; ── codes ───────────────────────────────────────────────────────────────────
+
+;; Ordered by caution. `gate-disposition` never returns a code lower than the
+;; one it was given; that is the invariant, and this ordering is what lets the
+;; parity test say so with `>=`.
+(defn disposition-commit [] :i64 0)
+(defn disposition-escalate [] :i64 1)
+(defn disposition-hold [] :i64 2)
+
+;; The rollout phases, in the order `phase.cljc` declares them. Any code that
+;; is not one of these is an UNKNOWN phase and falls back to phase 2 — the
+;; cljc's `case` default, kept rather than turned into a refusal because the
+;; phase arrives from `(:phase context)` and a typo there must not change what
+;; the governor decided.
+(defn phase-0-manual [] :i64 0)
+(defn phase-1-review [] :i64 1)
+(defn phase-2-supervised [] :i64 2)
+(defn phase-3-autonomous [] :i64 3)
+
+(defn default-phase [] :i64 2)
+
+;; 500 kg. See the header for why this is an i64 and what would make that
+;; wrong.
+(defn bulk-review-threshold-kg [] :i64 500)
+
+;; ── the governor verdict, before any phase gate ─────────────────────────────
+
+(defn verdict-disposition [v [:ref :phase/verdict]] :i64
+  ;; HARD first. A hard violation outranks the soft escalate flag, and
+  ;; reversing these two branches would route an unoverridable rejection to an
+  ;; approver.
+  (if (record-get v :hard)
+    (disposition-hold)
+    (if (record-get v :escalate)
+      (disposition-escalate)
+      (disposition-commit))))
+
+;; ── phase 1 ─────────────────────────────────────────────────────────────────
+
+(defn effective-kg [g [:ref :phase/gate]] :i64
+  ;; An undeclared weight scores as zero, which is below every threshold. This
+  ;; is the cljc's `get-in` default made visible; see the header.
+  (if (record-get g :weight-known)
+    (record-get g :estimated-kg)
+    0))
+
+(defn phase-1-auto-commit? [g [:ref :phase/gate]] :bool
+  ;; Phase 1 lets a governor-clean, small-volume intake through and sends
+  ;; everything else to a human. It does NOT re-open a hold; that is decided
+  ;; before this is asked.
+  (and (= (record-get g :disposition) (disposition-commit))
+       (< (effective-kg g) (bulk-review-threshold-kg))))
+
+;; ── the gate ────────────────────────────────────────────────────────────────
+
+(defn gate-disposition [g [:ref :phase/gate]] :i64
+  (if (= (record-get g :phase) (phase-0-manual))
+    ;; Phase 0 escalates everything a human could usefully look at — but a
+    ;; HOLD is not one of those. Returning `escalate` here would let an
+    ;; approver commit a proposal the governor refused outright, in the phase
+    ;; that is meant to be the most cautious of the four. This branch is the
+    ;; whole reason the property below is asserted rather than assumed.
+    (if (= (record-get g :disposition) (disposition-hold))
+      (disposition-hold)
+      (disposition-escalate))
+    (if (= (record-get g :phase) (phase-1-review))
+      (if (= (record-get g :disposition) (disposition-hold))
+        (disposition-hold)
+        (if (phase-1-auto-commit? g)
+          (disposition-commit)
+          (disposition-escalate)))
+      ;; Phase 2 (supervised), phase 3 (autonomous), and any unknown phase:
+      ;; the governor's verdict stands. Phase 3 is deliberately identical to
+      ;; phase 2 today — "autonomous" names the intent, not a weaker rule.
+      (record-get g :disposition))))
+
+(defn gate-reason [g [:ref :phase/gate]] [:option :string]
+  ;; A reason accompanies a disposition the PHASE changed, and only that. A
+  ;; hold that was already a hold, and a verdict phase 2 passed through, have
+  ;; nothing the phase needs to explain.
+  (if (= (record-get g :phase) (phase-0-manual))
+    (if (= (record-get g :disposition) (disposition-hold))
+      (option-none-of [:option :string])
+      (option-some-of [:option :string]
+                      "Phase 0: all operations require human review"))
+    (if (= (record-get g :phase) (phase-1-review))
+      (if (= (record-get g :disposition) (disposition-hold))
+        (option-none-of [:option :string])
+        (if (phase-1-auto-commit? g)
+          (option-none-of [:option :string])
+          (option-some-of [:option :string]
+                          "Phase 1: intake >500kg or low-confidence requires review")))
+      (option-none-of [:option :string]))))
+
+(defn main [] :i64
+  ;; Sentinel for the wasm host contract, not a battery. The assertions live in
+  ;; the parity test, where they can be compared against the cljc.
+  0)
