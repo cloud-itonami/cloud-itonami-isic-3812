@@ -36,7 +36,7 @@
   `kg->i64` is where the conversion lives; when `phase.cljc` delegates to the
   shipped core instead of mirroring it, this is the function that moves into
   the bridge."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [clojure.test :refer [deftest is testing]]
             [hazmat.phase :as phase]
             [kotoba.compiler.core :as compiler]
