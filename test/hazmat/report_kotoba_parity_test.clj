@@ -39,7 +39,7 @@
   compares the .kotoba gate against the policy the governor actually declares;
   `the-cljc-catalog-matches-the-policy-table` pins that derivation so a change
   to the policy table cannot pass by being mirrored into the oracle."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [clojure.test :refer [deftest is testing]]
             [hazmat.policy :as policy]
             [hazmat.report :as report]
