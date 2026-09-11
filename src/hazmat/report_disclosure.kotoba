@@ -36,7 +36,7 @@
 ;; an empty result set is not an access control.
 ;;
 ;; Two properties are the point of this file, and both are asserted over the
-;; whole cross-product in `test/hazmat/report_kotoba_parity_test.clj` rather
+;; whole cross-product in `test/hazmat/report_kotoba_parity_test.cljk` rather
 ;; than only as agreement with the cljc — agreement would still hold if both
 ;; sides were wrong together, which is what happened to the phase gate.
 ;;
@@ -68,7 +68,7 @@
 ;; result set. It is written and tested now, before there are rows, because the
 ;; alternative is to write it in the same commit that first produces them.
 ;;
-;; Parity: test/hazmat/report_kotoba_parity_test.clj
+;; Parity: test/hazmat/report_kotoba_parity_test.cljk
 
 (ns hazmat.report-disclosure
   (:export [tier-unlicensed tier-basic tier-detailed tier-audit tier-name
