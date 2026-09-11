@@ -15,7 +15,7 @@
   :dev {:override-deps
         {io.github.kotoba-lang/langchain
          {:local/root "../../kotoba-lang/langchain"}}}
-  ;; clojure -M:dev:run  → drive the demo through one OperationActor
+  ;; kbb -M:dev:run  → drive the demo through one OperationActor
   :run {:main-opts ["-m" "hazmat.sim"]}
   ;; The Kotoba compiler and the KIR interpreter are TEST-ONLY. They exist for
   ;; the .kotoba parity gates — `hazmat.phase-kotoba-parity-test` over
