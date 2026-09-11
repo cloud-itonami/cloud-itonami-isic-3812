@@ -22,7 +22,7 @@
 ;; to be the MOST cautious, and it was the only one that could take caution
 ;; away. Phase 1 already guarded `:hold` explicitly. Fixed here and in
 ;; `phase.cljc` together, with the property asserted over the whole
-;; cross-product in `test/hazmat/phase_kotoba_parity_test.clj` rather than
+;; cross-product in `test/hazmat/phase_kotoba_parity_test.cljk` rather than
 ;; only agreement with the cljc — agreement would still hold if both sides
 ;; were wrong together.
 ;;
@@ -84,7 +84,7 @@
 ;; establishes. Making the cljc return `[:result T E]` instead of throwing is
 ;; the follow-up, and is why this is named here rather than left to be found.
 ;;
-;; Parity: test/hazmat/phase_kotoba_parity_test.clj
+;; Parity: test/hazmat/phase_kotoba_parity_test.cljk
 
 (ns hazmat.phase-core
   (:schemas {;; What `verdict->disposition` reads out of the governor verdict.

@@ -7,7 +7,7 @@
   namespace is the host side (reading the client's billing contract out of the
   Store, the keyword ↔ code translation, and the map a caller consumes) and the
   oracle the decision is checked against by
-  `test/hazmat/report_kotoba_parity_test.clj`. Keywords do not cross that
+  `test/hazmat/report_kotoba_parity_test.cljk`. Keywords do not cross that
   boundary and tier codes are ordered by breadth (basic 0 < detailed 1 <
   audit 2), which is what lets \"a wider tier never discloses less\" be stated
   as arithmetic.
