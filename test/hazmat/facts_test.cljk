@@ -1,5 +1,5 @@
 (ns hazmat.facts-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [kotoba.test :refer [deftest is]]
             [hazmat.facts :as facts]))
 
 (deftest hazard-classification-catalog-exists
