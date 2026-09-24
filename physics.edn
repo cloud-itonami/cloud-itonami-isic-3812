@@ -1,0 +1,44 @@
+;; What this vertical's robot physically does, declared for
+;; kotoba.robotics.process (kotoba-lang/robotics). `kbb -M:dev:physics` runs it.
+;;
+;; README "Robotics premise": robots collect, transport and keep in
+;; telemetry-monitored containment hazardous waste (ISIC 3812). The physical
+;; work: a drum AGV carrying a full 200 L drum of liquid waste up the dock
+;; ramp to the collection truck, a drum-transfer pump moving used oil into
+;; the tanker, and the fire-rated storage cabinet holding flammable waste
+;; while it waits for collection.
+;;
+;; Every number without a cited source is marked `estimate` in its :basis.
+;; Replacing an estimate with a sourced value is this bot's growth work.
+{:physics/schema "itonami.physical-ai.spec.v1"
+ :repo "cloud-itonami/cloud-itonami-isic-3812"
+ :cases
+ [{:id :drum-agv-to-truck
+   :kind :transport
+   :procedure "drum AGV carries a full 200 L drum of liquid hazardous waste (250 kg) 30 m up a 3-degree dock ramp to the collection truck, then stops"
+   :params {:mass-kg 180.0 :payload-kg 250.0 :distance-m 30.0 :v-max-mps 0.8 :a-max-mps2 0.4
+            :drive-force-n 900.0 :crr 0.02 :cog-height-m 0.35 :payload-cog-height-m 0.85
+            :support-half-length-m 0.45 :slope-deg 3.0 :max-time-s 1200.0}
+   :sweep {:param :brake-decel-mps2 :values [1.0 2.0 3.0 4.0 5.0]}
+   :quantity :min-tipover-margin
+   :limit {:min 0.5 :basis "estimate: keep at least half the static tip-over margin on the ramp, because the liquid in a partly filled drum surges forward when the AGV brakes"}
+   :boundary {:lo 0.5 :hi 8.0}}
+  {:id :used-oil-transfer-pump
+   :kind :pipe-flow
+   :procedure "drum-transfer pump moves cold used oil from the generator's drums through a 15 m, 50 mm hose up 3 m into the collection tanker"
+   :params {:diameter-m 0.05 :length-m 15.0 :roughness-m 1.5e-6 :density-kg-m3 900.0
+            :viscosity-pa-s 0.2 :pump-efficiency 0.5 :elevation-m 3.0}
+   :sweep {:param :q-m3s :values [0.0005 0.001 0.002 0.003 0.004]}
+   :quantity :pump-power-w
+   :limit {:max 750.0 :basis "estimate: shaft power of a 1 hp (0.75 kW) portable drum-transfer pump"}
+   :boundary {:lo 0.0001 :hi 0.01}}
+  {:id :flammable-waste-cabinet-fire
+   :kind :thermal
+   :procedure "fire-rated storage cabinet wall (calcium-silicate board) holding flammable waste solvents is exposed to the ISO 834 standard fire on its outer face"
+   :params {:conductivity-w-mk 0.12 :density-kg-m3 500.0 :specific-heat-j-kgk 1000.0
+            :t0-c 20.0 :hot-curve :iso-834 :h-front-w-m2k 25.0 :t-back-ambient-c 20.0 :h-back-w-m2k 10.0
+            :threshold-c 200.0 :duration-s 10800.0 :nodes 11}
+   :sweep {:param :thickness-m :values [0.015 0.020 0.030 0.040 0.050]}
+   :quantity :time-to-threshold-s
+   :limit {:min 5400.0 :basis "EN 14470-1 type 90 safety storage cabinet: internal temperature rise of at most 180 K for 90 minutes in the fire test (threshold 20 + 180 C; the wall's inner face stands in for the cabinet interior, which is conservative)"}
+   :boundary {:lo 0.01 :hi 0.05}}]}
