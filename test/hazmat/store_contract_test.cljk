@@ -1,5 +1,5 @@
 (ns hazmat.store-contract-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [kotoba.test :refer [deftest is]]
             [hazmat.store :as store]))
 
 (def test-clients

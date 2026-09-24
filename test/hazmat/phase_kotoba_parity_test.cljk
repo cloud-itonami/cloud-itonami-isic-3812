@@ -37,7 +37,7 @@
   shipped core instead of mirroring it, this is the function that moves into
   the bridge."
   (:require [kotoba.lang.text :as str]
-            [clojure.test :refer [deftest is testing]]
+            [kotoba.test :refer [deftest is testing]]
             [hazmat.phase :as phase]
             [kotoba.compiler.core :as compiler]
             [kotoba.kir :as ir]))

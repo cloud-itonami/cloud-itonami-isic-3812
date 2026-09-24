@@ -1,5 +1,5 @@
 (ns hazmat.policy-contract-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [hazmat.policy :as policy]
             [hazmat.store :as store]))
 
